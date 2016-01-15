@@ -3,6 +3,10 @@ require 'digest/sha1'
 require 'cgi'
 require 'forwardable'
 require 'fileutils'
+require 'thread'
+require 'logger'
+
+require 'pry-byebug'
 
 module KTorrent
   extend self
@@ -16,11 +20,11 @@ module KTorrent
   end
 
   def debugger
-    @debug ||= $stdderr
+    @debug ||= $stderr
   end
 
   def debugger=(d)
-    @logger = l || $stdderr
+    @logger = l || $stderr
   end
 
   def debug_on
@@ -32,19 +36,39 @@ module KTorrent
   end
 
   def log(message)
-    logger.write(message + "\n")
+    @previous_log ||= []
+    @previous_log.shift while @previous_log.size >= 5
+    @previous_log.push([Time.now, message])
+
+    @log_file ||= Logger.new('log.txt')
+    @log_file.info(message)
+    # logger.write(message + "\n")
+  end
+
+  def previous_log
+    @previous_log
   end
 
   def debug(message)
-    debugger.write(message + "\n") if debug_on
+    @previous_debug ||= []
+    @previous_debug.shift while @previous_debug.size >= 5
+    @previous_debug.push([Time.now, message])
+
+    @log_file ||= Logger.new('log.txt')
+    @log_file.debug(message)
+    # debugger.write(message + "\n") if debug_on
+  end
+
+  def previous_debug
+    @previous_debug
   end
 
   def download_dir
-    @download_dir ||= 'downloads/'
+    @download_dir ||= 'downloads'
   end
 
   def download_dir=(d)
-    @download_dir = d || 'downloads/'
+    @download_dir = d || 'downloads'
   end
 
   # def self.parse_magnet_url(url)

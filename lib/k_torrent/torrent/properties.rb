@@ -34,7 +34,7 @@ module KTorrent
     end
 
     def info_hash(hex = true)
-      @info_hash ||= Digest::SHA1.hexdigest(BEncoding.encode(info))
+      @info_hash ||= Digest::SHA1.hexdigest(BEncoding.encode(info)).downcase
       hex and @info_hash or [@info_hash].pack('H*')
     end
 
@@ -42,16 +42,26 @@ module KTorrent
       @trackers[1..-1]
     end
 
+    def hashes(hex = true)
+      @hashes ||= info['pieces'].chars.each_slice(20).map(&:join)
+      @hex_hashes ||= @hashes.map { |bytes| bytes.unpack('H*').first }
+      hex and @hex_hashes or @hashes
+    end
+
     def total_size
       @total_size ||= multiple_files? and info['files'].map { |o| o['length'].to_i }.inject(0, :+) or info['length'].to_i
     end
 
-    def piece_size
-      info['piece length'].to_i
+    def piece_size(last_piece: false, piece_id: nil)
+      if last_piece || piece_id == pieces - 1
+        @final_piece_size = total_size % piece_size
+      else
+        @regular_piece_size = info['piece length'].to_i
+      end
     end
 
     def pieces
-      info['pieces'].size / 20
+      @pieces = info['pieces'].size / 20
     end
 
     def to_metadata
