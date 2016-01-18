@@ -37,6 +37,7 @@ module KTorrent
     def clean_up
       ::KTorrent.log("Worker #{ip_port} cleaned up after itself")
       @socket_thread.kill if @socket_thread
+      queue.push(['exit'])
       @thread.kill if @thread
       @socket.close if @socket
     end
@@ -47,42 +48,63 @@ module KTorrent
 
     def start_socket_reader_thread
       @socket_thread = Thread.new do
-        loop do
-          len = socket.read(4)
-          msg_size = len.unpack('N').first
-          next if msg_size.zero? # Keepalives
-          msg = socket.read(msg_size)
+        begin
+          error = nil
+          loop do
+            len = socket.read(4)
+            msg_size = len.unpack('N').first
+            next if msg_size.zero? # Keepalives
+            msg = socket.read(msg_size)
 
-          ::KTorrent.log("#{ip_port} - data received: #{msg.unpack('H*')}")
+            ::KTorrent.log("#{ip_port} - data received: #{msg.unpack('H*')}")
 
-          msg_id, contents = msg.unpack('Ca*')
+            msg_id, contents = msg.unpack('Ca*')
 
-          lookup = {0 => 'choke', 1 => 'unchoke', 2 => 'interested', 3 => 'not interested',
-                    4 => 'have', 5 => 'bitfield', 6 => 'request', 7 => 'piece', 8 => 'cancel',
-                    9 => 'port'}
-          action = lookup[msg_id]
-          if action
-            queue.push([action, contents])
-          else
-            ::KTorrent.log("Unknown data received: #{msg.unpack('H*')}")
+            lookup = {0 => 'choke', 1 => 'unchoke', 2 => 'interested', 3 => 'not interested',
+                      4 => 'have', 5 => 'bitfield', 6 => 'request', 7 => 'piece', 8 => 'cancel',
+                      9 => 'port'}
+            action = lookup[msg_id]
+            if action
+              queue.push([action, contents])
+            else
+              ::KTorrent.log("Unknown data received: #{msg.unpack('H*')}")
+            end
+
+            # when '0' # 'choke'
+            # when '1' # 'unchoke'
+            # when '2' # 'interested'
+            # when '3' # 'not interested'
+            # when '4' # 'have'
+            # when '5' # 'bitfield'
+            # when '6' # 'request'
+            # when '7' # 'piece'
+            # when '8' # 'cancel'
+            # when '9' # 'port'
           end
+        rescue StandardError => e
+          error = e
+          ::KTorrent.log("#{ip_port} - socket reader thread error")
+        ensure
+          queue.push['socket reader thread stopped', error]
+          ::KTorrent.log("#{ip_port} - socket reader thread stopped")
+        end
+      end
+    end
+    PIPELINING_INTERVAL = 0.05 # secs
 
-          # when '0' # 'choke'
-          # when '1' # 'unchoke'
-          # when '2' # 'interested'
-          # when '3' # 'not interested'
-          # when '4' # 'have'
-          # when '5' # 'bitfield'
-          # when '6' # 'request'
-          # when '7' # 'piece'
-          # when '8' # 'cancel'
-          # when '9' # 'port'
+    def start_socket_pipelining_thread
+      @socket_pipelining_thread = Thread.new do
+        begin
+          @socket_response_queue = []
+        ensure
+
         end
       end
     end
 
     def socket_write(message)
-      socket.write([message.size, message].pack('Na*'))
+      bytes = [message.size, message].pack('Na*')
+      socket.write()
     end
 
     PIECE_CHUNK_SIZE = 2**14
@@ -127,7 +149,8 @@ module KTorrent
 
           cancelled_requests = {}
 
-          loop do
+          exit = false
+          until exit do
             command = queue.pop
             case command[0]
             when 'initial setup'
@@ -137,6 +160,13 @@ module KTorrent
               new_pieces_to_attempt.each do |piece_id|
                 pieces_to_request[piece_id] = false
               end
+            when 'socket reader thread stopped'
+              error = command[1]
+              if error
+                raise error
+              end
+            when 'exit'
+              exit = true
             when /send (.*)/
               case "#{$1}"
               when 'choke' # 0
@@ -216,7 +246,7 @@ module KTorrent
               queue.push(['send piece', [piece_id, offset, length]])
             when 'piece'
               piece_id, offset, data = command[1].unpack('NNa*')
-              piece_size = torrent.properties.piece_size
+              piece_size = torrent.properties.piece_size(piece_id: piece_id)
 
               part_of_pieces[piece_id] ||= [nil] * piece_size
               part_of_pieces[piece_id][offset...(offset + data.size)] = data.chars # save to pieces
@@ -261,9 +291,10 @@ module KTorrent
 
         rescue StandardError => e
           error = e
+          raise
         ensure
-            # atexit: remove from @connections_out and add to @failed_peers
-
+          # atexit: remove from @connections_out and add to @failed_peers
+          ::KTorrent.log("#{ip_port} - worker thread stopped")
           manager_command_queue.push(['disconnect', [ip_port, self, error]])
         end
       end

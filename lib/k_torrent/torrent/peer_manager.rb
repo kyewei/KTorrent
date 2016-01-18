@@ -66,16 +66,20 @@ module KTorrent
             command = @service_commands.pop # blocks, does not wait spin
             @failed_peers = @failed_peers.select { |host, time| time + PEER_RETRY_TIME > Time.now } # sliding window
 
+
+
             case command[0]
             when 'tracker updated'
-              @tracker_provided_peers = command[1].map { |host_info| ["#{host_info['ip']}:#{host_info['port']}", host_info['peer id']]}.to_h
+              @tracker_provided_peers.merge!(command[1].map { |host_info| ["#{host_info['ip']}:#{host_info['port']}", host_info['peer id']]}.to_h)
               @service_commands.push(['more connections'])
             when 'connect'
               ip, port, peer_id = command[1]
-              worker = ::KTorrent::Torrent::PeerWorker.new(manager: self, ip: ip, port: port, peer_id: peer_id)
-              @connections_out[worker.ip_port] = worker
-              worker.start_thread
-
+              unless (@connections_out.key?("#{ip}:#{port}"))
+                worker = ::KTorrent::Torrent::PeerWorker.new(manager: self, ip: ip, port: port, peer_id: peer_id)
+                @connections_out[worker.ip_port] = worker
+                ::KTorrent.log("Worker #{worker.ip_port} created")
+                worker.start_thread
+              end
             when 'disconnect'
               ip_port, worker, error = command[1]
 
@@ -175,11 +179,10 @@ module KTorrent
     end
 
     def service_stop
-      # @service_commands.push(['exit'])
-
       @connections_out.each do |ip_port, worker|
         worker.clean_up
       end
+      @service_commands.push(['exit'])
       @service_thread.kill unless @service_thread.nil?
       @service_thread = nil
     end
@@ -189,7 +192,7 @@ module KTorrent
     end
 
     def peer_id(hex = true)
-      @client_id ||= '-KW2221-' + ("%012d" % 1451199765)
+      @client_id ||= '-KW2221-' + ("%012d" % 1451200000)
       hex and @client_id.unpack('H*').first or @client_id.downcase
     end
 

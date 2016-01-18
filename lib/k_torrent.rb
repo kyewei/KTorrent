@@ -6,7 +6,6 @@ require 'fileutils'
 require 'thread'
 require 'logger'
 
-require 'pry-byebug'
 
 module KTorrent
   extend self
