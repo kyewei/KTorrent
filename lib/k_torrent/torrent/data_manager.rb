@@ -60,7 +60,7 @@ module KTorrent
         end
 
 
-      else # er what the hell
+      else # not supposed to happen
 
       end
     end

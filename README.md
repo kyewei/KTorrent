@@ -1,2 +1,2 @@
-k_torrent
+KTorrent
 ==============

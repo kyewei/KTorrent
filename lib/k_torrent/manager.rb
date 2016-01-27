@@ -10,6 +10,11 @@ module KTorrent
       ::KTorrent::Torrent.new(manager: self, metadata: metadata)
     end
 
+    # def parse_magnet_url(url)
+    #   scheme, params = url.split('?', 2)
+    #   decoded_params = URI.decode_www_form(URI.decode(params)).to_h
+    # end
+
     def self.manager
       @manager ||= self.new
     end

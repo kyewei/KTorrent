@@ -9,8 +9,6 @@ Gem::Specification.new do |s|
   s.description = "A simple implementation of the BitTorrent protocol"
   s.authors     = ["Kye Wei"]
   s.email       = 'me@kyewei.com'
-  s.files       = Dir.glob("{bin,lib}/**/*") + %w(LICENSE README.md)
-  s.homepage    =
-    'http://rubygems.org/gems/ktorrent'
-  s.license       = 'MIT'
+  s.files       = Dir.glob("{bin,lib}/**/*") + %w(README.md)
+  s.homepage    = 'http://rubygems.org/gems/ktorrent'
 end

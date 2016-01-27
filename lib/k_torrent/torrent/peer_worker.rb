@@ -40,6 +40,7 @@ module KTorrent
       queue.push(['exit'])
       @thread.kill if @thread
       @socket.close if @socket
+      @socket_pipelining_thread.kill if @socket_pipelining_thread
     end
 
     def ip_port
@@ -95,16 +96,35 @@ module KTorrent
     def start_socket_pipelining_thread
       @socket_pipelining_thread = Thread.new do
         begin
-          @socket_response_queue = []
+          @socket_response_queue = Queue.new
+          error = nil
+          exit = false
+          until exit do
+            bytes = @socket_response_queue.pop
+            sleep(PIPELINING_INTERVAL)
+            until @socket_response_queue.empty?
+              bytes += @socket_response_queue.pop
+            end
+            socket.write(bytes)
+          end
+        rescue StandardError => e
+          error = e
+          ::KTorrent.log("#{ip_port} - socket writer thread error")
         ensure
-
+          @socket_response_queue = nil
+          queue.push['socket writer thread stopped', error]
+          ::KTorrent.log("#{ip_port} - socket writer thread stopped")
         end
       end
     end
 
     def socket_write(message)
       bytes = [message.size, message].pack('Na*')
-      socket.write()
+      if ["sleep", "run"].include?(@socket_pipelining_thread.status) && !@socket_response_queue.nil?
+        @socket_response_queue.push(bytes)
+      else
+        socket.write(bytes)
+      end
     end
 
     PIECE_CHUNK_SIZE = 2**14
@@ -143,6 +163,8 @@ module KTorrent
           queue.push(['initial setup'])
 
           start_socket_reader_thread
+
+          start_socket_pipelining_thread
 
           pieces_to_request = {} # piece_id => Bool
           part_of_pieces = {} # piece_id => [byte_string] * size
